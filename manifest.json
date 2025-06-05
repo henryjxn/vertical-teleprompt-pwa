@@ -1,0 +1,22 @@
+{
+  "short_name": "Teleprompter",
+  "name": "Vertical Teleprompter PWA",
+  "description": "A simple vertical teleprompter that reads clipboard text.",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#222222",
+  "theme_color": "#008080"
+}

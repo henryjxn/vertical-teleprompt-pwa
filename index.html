@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vertical Teleprompter</title>
+
+  <!-- ========================== PWA / iOS META ========================== -->
+  <!-- Tell browsers this is a PWA manifest -->
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- iOS Safari: allow full-screen mode and set status bar -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Teleprompter PWA" />
+
+  <!-- Apple touch icon (home‐screen icon for iOS) -->
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+  <!-- Splash screens for different iOS devices (optional but recommended)
+       You can generate correct splash images (e.g., 640×1136, 750×1334, etc.)
+       and reference them with media queries. For brevity, here is one example: -->
+  <link
+    rel="apple-touch-startup-image"
+    href="/icons/apple-splash-1125x2436.png"
+    media="(device-width: 375px) and (device-height: 812px)
+           and (-webkit-device-pixel-ratio: 3)"
+  />
+  <!-- (Repeat for all iPhone/iPad resolutions if desired) -->
+
+  <!-- Theme color for Android Chrome -->
+  <meta name="theme-color" content="#008080" />
+  <meta name="description" content="A simple vertical teleprompter that reads clipboard text." />
+  <!-- ====================================================================== -->
+
+  <style>
+    /* -------------- Global Styles -------------- */
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #222;
+      overflow: hidden;
+      font-family: Roboto, Arial, sans-serif;
+      color: white;
+    }
+
+    /* -------------- “Load Clipboard” Button -------------- */
+    #read-clipboard-btn {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      font-size: 16px;
+      background: teal;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      z-index: 1002;
+    }
+    #read-clipboard-btn:hover {
+      background: #004c4c;
+    }
+
+    /* -------------- Teleprompter Container -------------- */
+    .prompter-wrap {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh; /* Full viewport height */
+      background: teal;
+      overflow: hidden; /* Hide overflow so the text scrolls smoothly */
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* -------------- Teleprompter Content -------------- */
+    #prompter {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      /* We will set the “top” via JS to animate the vertical scroll */
+      white-space: pre-wrap; /* Preserve line breaks and blank lines */
+      font-size: 2rem;
+      line-height: 1.2em;
+      padding: 2rem; /* Some padding so text isn’t glued to edges */
+      box-sizing: border-box;
+      color: white;
+    }
+    .prompter__item {
+      display: inline-block; /* Let the text size define height */
+    }
+  </style>
+</head>
+<body>
+  <button id="read-clipboard-btn">Load Clipboard Text</button>
+
+  <div class="prompter-wrap">
+    <div id="prompter"></div>
+  </div>
+
+  <script>
+    // ======================== SERVICE WORKER REGISTRATION ========================
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker
+          .register('/service-worker.js')
+          .then((registration) => {
+            console.log('Service Worker registered with scope:', registration.scope);
+          })
+          .catch((err) => {
+            console.error('Service Worker registration failed:', err);
+          });
+      });
+    }
+    // =============================================================================
+
+    // -------------------- State Variables --------------------
+    let prompterText = '';
+    let posY = 0; // Current Y‐position (in px) of the content
+    let speed = 100; // Speed in pixels per second
+    let paused = false;
+
+    const prompter = document.getElementById('prompter');
+    const prompterWrap = document.querySelector('.prompter-wrap');
+
+    // These will be computed once text is loaded:
+    let contentHeight = 0; // Height (in px) of the entire text block
+    let containerHeight = prompterWrap.clientHeight; // Visible area height
+
+    // -------------------- Prepare the Teleprompter --------------------
+    function preparePrompter(text) {
+      // Clear any existing content
+      prompter.innerHTML = '';
+
+      // Create a wrapper <div> so we can measure its scrollHeight easily
+      const item = document.createElement('div');
+      item.className = 'prompter__item';
+
+      // Put the prepared text (which already has "\n\n" between sentences)
+      item.textContent = text;
+
+      prompter.appendChild(item);
+
+      // Recompute heights
+      contentHeight = item.scrollHeight;
+      containerHeight = prompterWrap.clientHeight;
+
+      // Start the content just below the bottom of the container
+      posY = containerHeight;
+      prompter.style.top = posY + 'px';
+    }
+
+    // -------------------- Read Clipboard & Format Sentences --------------------
+    async function readClipboardAndStartPrompter() {
+      try {
+        const clipboardText = await navigator.clipboard.readText();
+        if (clipboardText.trim()) {
+          // 1. Collapse ALL whitespace (including newlines) into single spaces
+          const normalized = clipboardText.replace(/\s+/g, ' ').trim();
+
+          // 2. Split into sentences whenever a period/exclamation/question mark is followed by whitespace
+          const rawSentences = normalized.split(/(?<=[.!?])\s+/);
+
+          // 3. Join with TWO newlines ("\n\n") so each sentence is on its own line with a blank line below
+          prompterText = rawSentences.map((s) => s.trim()).join('\n\n');
+
+          // Save to localStorage so it persists on reload
+          localStorage.setItem('clipboardContent', prompterText);
+
+          // Prepare and start scrolling
+          preparePrompter(prompterText);
+        } else {
+          alert('Clipboard is empty.');
+        }
+      } catch (err) {
+        alert('Clipboard access failed.');
+        console.error(err);
+      }
+    }
+
+    // -------------------- Animation Loop --------------------
+    function animatePrompter() {
+      let lastTime = performance.now();
+
+      function step(currentTime) {
+        const delta = currentTime - lastTime;
+        lastTime = currentTime;
+
+        if (!paused) {
+          // Move upward: subtract (speed * deltaSeconds)
+          posY -= (speed * delta) / 1000;
+          prompter.style.top = posY + 'px';
+
+          // If the entire content has scrolled past the top, reset to bottom
+          if (posY + contentHeight < 0) {
+            posY = containerHeight;
+            prompter.style.top = posY + 'px';
+          }
+        }
+
+        requestAnimationFrame(step);
+      }
+
+      requestAnimationFrame(step);
+    }
+
+    // -------------------- Keyboard Controls --------------------
+    document.addEventListener('keydown', (e) => {
+      // Prevent default scrolling when arrow keys or space are pressed
+      if (['ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      if (e.code === 'Space') {
+        // Toggle pause/play
+        paused = !paused;
+      } else if (e.key === 'ArrowUp') {
+        // Increase speed by 20 px/s (clamp at 1000 px/s)
+        speed = Math.min(1000, speed + 20);
+      } else if (e.key === 'ArrowDown') {
+        // Decrease speed by 20 px/s (minimum 10 px/s)
+        speed = Math.max(10, speed - 20);
+      }
+    });
+
+    // -------------------- On Page Load --------------------
+    window.addEventListener('load', () => {
+      // If there’s saved clipboard content, load it automatically
+      const saved = localStorage.getItem('clipboardContent');
+      if (saved) {
+        prompterText = saved;
+        preparePrompter(prompterText);
+      }
+      animatePrompter();
+    });
+
+    // Hook up the “Load Clipboard” button
+    document
+      .getElementById('read-clipboard-btn')
+      .addEventListener('click', readClipboardAndStartPrompter);
+  </script>
+</body>
+</html>
