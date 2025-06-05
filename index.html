@@ -5,37 +5,18 @@
   <title>Vertical Teleprompter</title>
 
   <!-- ========================== PWA / iOS META ========================== -->
-  <!-- Tell browsers this is a PWA manifest -->
   <link rel="manifest" href="/manifest.json" />
-
-  <!-- iOS Safari: allow full-screen mode and set status bar -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Teleprompter PWA" />
-
-  <!-- Apple touch icon (home‐screen icon for iOS) -->
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-
-  <!-- Splash screens for different iOS devices (optional but recommended)
-       You can generate correct splash images (e.g., 640×1136, 750×1334, etc.)
-       and reference them with media queries. For brevity, here is one example: -->
-  <link
-    rel="apple-touch-startup-image"
-    href="/icons/apple-splash-1125x2436.png"
-    media="(device-width: 375px) and (device-height: 812px)
-           and (-webkit-device-pixel-ratio: 3)"
-  />
-  <!-- (Repeat for all iPhone/iPad resolutions if desired) -->
-
-  <!-- Theme color for Android Chrome -->
   <meta name="theme-color" content="#008080" />
   <meta name="description" content="A simple vertical teleprompter that reads clipboard text." />
   <!-- ====================================================================== -->
 
   <style>
     /* -------------- Global Styles -------------- */
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       height: 100%;
@@ -74,6 +55,8 @@
       background: teal;
       overflow: hidden; /* Hide overflow so the text scrolls smoothly */
       box-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+      /* Prevent double-tap zoom on iOS */
+      touch-action: manipulation;
     }
 
     /* -------------- Teleprompter Content -------------- */
@@ -119,36 +102,32 @@
 
     // -------------------- State Variables --------------------
     let prompterText = '';
-    let posY = 0; // Current Y‐position (in px) of the content
-    let speed = 100; // Speed in pixels per second
+    let posY = 0;               // Current Y‐position (in px) of the content
+    let speed = 100;            // Speed in pixels per second
     let paused = false;
 
     const prompter = document.getElementById('prompter');
     const prompterWrap = document.querySelector('.prompter-wrap');
 
     // These will be computed once text is loaded:
-    let contentHeight = 0; // Height (in px) of the entire text block
+    let contentHeight = 0;            // Height (in px) of the entire text block
     let containerHeight = prompterWrap.clientHeight; // Visible area height
 
     // -------------------- Prepare the Teleprompter --------------------
     function preparePrompter(text) {
-      // Clear any existing content
-      prompter.innerHTML = '';
+      prompter.innerHTML = ''; // Clear any existing content
 
-      // Create a wrapper <div> so we can measure its scrollHeight easily
       const item = document.createElement('div');
       item.className = 'prompter__item';
-
-      // Put the prepared text (which already has "\n\n" between sentences)
-      item.textContent = text;
+      item.textContent = text; // Text already has "\n\n" between sentences
 
       prompter.appendChild(item);
 
-      // Recompute heights
+      // Recompute heights after insertion
       contentHeight = item.scrollHeight;
       containerHeight = prompterWrap.clientHeight;
 
-      // Start the content just below the bottom of the container
+      // Start just below the bottom of the container
       posY = containerHeight;
       prompter.style.top = posY + 'px';
     }
@@ -158,14 +137,14 @@
       try {
         const clipboardText = await navigator.clipboard.readText();
         if (clipboardText.trim()) {
-          // 1. Collapse ALL whitespace (including newlines) into single spaces
+          // 1. Collapse ALL whitespace into single spaces
           const normalized = clipboardText.replace(/\s+/g, ' ').trim();
 
-          // 2. Split into sentences whenever a period/exclamation/question mark is followed by whitespace
+          // 2. Split into sentences on [.!?] followed by whitespace
           const rawSentences = normalized.split(/(?<=[.!?])\s+/);
 
-          // 3. Join with TWO newlines ("\n\n") so each sentence is on its own line with a blank line below
-          prompterText = rawSentences.map((s) => s.trim()).join('\n\n');
+          // 3. Join with TWO newlines so each sentence is on its own line, with a blank line below
+          prompterText = rawSentences.map(s => s.trim()).join('\n\n');
 
           // Save to localStorage so it persists on reload
           localStorage.setItem('clipboardContent', prompterText);
@@ -194,7 +173,7 @@
           posY -= (speed * delta) / 1000;
           prompter.style.top = posY + 'px';
 
-          // If the entire content has scrolled past the top, reset to bottom
+          // If scrolled past top, reset to bottom
           if (posY + contentHeight < 0) {
             posY = containerHeight;
             prompter.style.top = posY + 'px';
@@ -207,28 +186,31 @@
       requestAnimationFrame(step);
     }
 
-    // -------------------- Keyboard Controls --------------------
-    document.addEventListener('keydown', (e) => {
-      // Prevent default scrolling when arrow keys or space are pressed
+    // -------------------- Keyboard Controls (Desktop) --------------------
+    document.addEventListener('keydown', e => {
+      // Prevent default scroll on arrow/space
       if (['ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
         e.preventDefault();
       }
 
       if (e.code === 'Space') {
-        // Toggle pause/play
         paused = !paused;
       } else if (e.key === 'ArrowUp') {
-        // Increase speed by 20 px/s (clamp at 1000 px/s)
         speed = Math.min(1000, speed + 20);
       } else if (e.key === 'ArrowDown') {
-        // Decrease speed by 20 px/s (minimum 10 px/s)
         speed = Math.max(10, speed - 20);
       }
     });
 
+    // -------------------- Tap / Click to Toggle (iOS / Mobile) --------------------
+    // Tapping anywhere inside the teal .prompter-wrap will pause/resume.
+    prompterWrap.addEventListener('click', () => {
+      paused = !paused;
+    });
+
     // -------------------- On Page Load --------------------
     window.addEventListener('load', () => {
-      // If there’s saved clipboard content, load it automatically
+      // Auto-load from localStorage if present
       const saved = localStorage.getItem('clipboardContent');
       if (saved) {
         prompterText = saved;
